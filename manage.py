@@ -7,7 +7,7 @@ from flask.cli import pass_script_info
 
 from application import create_app
 
-app = create_app()
+app = create_app(os.environ.get('CONFIG', 'production'))
 
 
 @app.cli.command('runssl', short_help='Runs a development server.')
@@ -26,9 +26,11 @@ app = create_app()
               'loading is enabled if the reloader is disabled.')
 @click.option('--with-threads/--without-threads', default=False,
               help='Enable or disable multithreading.')
+@click.option('--adhoc', default=False, is_flag=True,
+              help='Use adhoc ssl_context (requires pyopenssl).')
 @pass_script_info
 def run_command(info, host, port, reload, debugger, eager_loading,
-                with_threads):
+                with_threads, adhoc):
     """Runs a local development server for the Flask application.
 
     This local server is recommended for development purposes only but it
@@ -43,25 +45,29 @@ def run_command(info, host, port, reload, debugger, eager_loading,
     Runs https with self singed certificates for localhost.
     """
 
-    # get certificates or exit
-    base = os.path.abspath(os.path.dirname(__file__))
-    keyfiles = set(['localhost.crt', 'localhost.key'])
-    dirfiles = set(os.listdir(base))
-    missing = keyfiles.difference(dirfiles)
+    if adhoc:
+        context = 'adhoc'
+    else:
+        # get certificates or exit
+        base = os.path.abspath(os.path.dirname(__file__))
+        keyfiles = set(['localhost.crt', 'localhost.key'])
+        dirfiles = set(os.listdir(base))
+        missing = keyfiles.difference(dirfiles)
 
-    if not keyfiles.issubset(dirfiles):
-        click.secho('{} not found.'.format(" and ".join(missing)), fg='red')
-        click.echo('Create a certificate with the following command: ')
-        click.secho('openssl req -nodes -x509 -subj "/CN=localhost" -sha256 '
-                    '-newkey rsa:4096 -keyout localhost.key -out localhost.crt '
-                    '-days 365', fg='yellow')
-        return
+        if not keyfiles.issubset(dirfiles):
+            click.secho('{} not found.'.format(" and ".join(missing)), fg='red')
+            click.echo('Create a certificate with the following command: ')
+            click.secho('openssl req -nodes -x509 -subj "/CN=localhost" -sha256 '
+                        '-newkey rsa:4096 -keyout localhost.key -out localhost.crt '
+                        '-days 365', fg='yellow')
+            click.echo('Or use --adhoc for the adhoc ssl context (requires pyopenssl).')
+            return
 
-    from flask.globals import _app_ctx_stack
-    app = _app_ctx_stack.top.app
-    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-    context.load_cert_chain(certfile='localhost.crt',
-                            keyfile='localhost.key')
+        from flask.globals import _app_ctx_stack
+        app = _app_ctx_stack.top.app
+        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        context.load_cert_chain(certfile='localhost.crt',
+                                keyfile='localhost.key')
 
     from werkzeug.serving import run_simple
     from flask.cli import get_debug_flag, DispatchingApp
